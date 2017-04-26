@@ -24,6 +24,8 @@ class AuthenticationTableViewController: UITableViewController, AuthenticationTa
     var password = ""
     var confirmPassword = ""
     
+    var hasPasswordManagerInstalled = OnePasswordExtension.shared().isAppExtensionAvailable()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
@@ -61,6 +63,13 @@ class AuthenticationTableViewController: UITableViewController, AuthenticationTa
             cell.textField.placeholder = "password"
             cell.textField.text = password
             cell.textField.isSecureTextEntry = true
+            
+            if hasPasswordManagerInstalled {
+                cell.button.isHidden = false
+                cell.button.setTitle(nil, for: .normal)
+                cell.button.setImage(#imageLiteral(resourceName: "onepassword-button"), for: .normal)
+            }
+            
         case 2:
             cell.textField.placeholder = "confirm password"
             cell.textField.text = confirmPassword
@@ -92,7 +101,55 @@ class AuthenticationTableViewController: UITableViewController, AuthenticationTa
     
     // MARK: - Authentication Table View Cell Delegate
     
-    func buttonTapped(on cell: AuthenticationTableViewCell) {}
+    func buttonTapped(on cell: AuthenticationTableViewCell) {
+        view.endEditing(true)
+        guard let indexPath = tableView.indexPath(for: cell) else { return }
+        
+        if indexPath.row == 1 {
+            switch viewMode {
+            case .login:
+                OnePasswordExtension.shared().findLogin(forURLString: "www.myappurl.com", for: self, sender: cell.button, completion: { (loginDictionary: [AnyHashable : Any]?, error: Error?) in
+                    
+                    let errorCode = Int32((error as NSError?)?.code ?? 0)
+                    
+                    if loginDictionary?.count == 0 && errorCode != AppExtensionErrorCodeCancelledByUser {
+                        print("Error invoking 1Password App Extension for find login: " + String(describing: error?.localizedDescription))
+                    } else {
+                        self.email = loginDictionary?[AppExtensionUsernameKey] as? String ?? ""
+                        self.password = loginDictionary?[AppExtensionPasswordKey] as? String ?? ""
+                        self.tableView.reloadData()
+                    }
+                })
+            case .signup:
+                let newLoginDetails = [AppExtensionTitleKey: "MyApp",
+                                       AppExtensionUsernameKey: self.email,
+                                       AppExtensionPasswordKey: self.password,
+                                       AppExtensionNotesKey: "Saved with MyApp."]
+                
+                //optional
+                
+                let passwordGenerationOptions: [String: Any] = [AppExtensionGeneratedPasswordMinLengthKey: NSNumber(integerLiteral: 8),
+                                                                AppExtensionGeneratedPasswordMaxLengthKey: NSNumber(integerLiteral: 30),
+                                                                AppExtensionGeneratedPasswordRequireDigitsKey: true,
+                                                                AppExtensionGeneratedPasswordRequireSymbolsKey: false,
+                                                                AppExtensionGeneratedPasswordForbiddenCharactersKey: "!@#$%/0lIO"]
+                
+                //</optional>
+                
+                OnePasswordExtension.shared().storeLogin(forURLString: "www.myappurl.com", loginDetails: newLoginDetails, passwordGenerationOptions: passwordGenerationOptions, for: self, sender: cell.button, completion: { (loginDictionary: [AnyHashable : Any]?, error: Error?) in
+                    let errorCode = Int32((error as NSError?)?.code ?? 0)
+                    if loginDictionary?.count == 0 && errorCode != AppExtensionErrorCodeCancelledByUser {
+                        print("Error invoking 1Password App Extension for find login: " + String(describing: error?.localizedDescription))
+                    } else {
+                        self.email = loginDictionary?[AppExtensionUsernameKey] as? String ?? ""
+                        self.password = loginDictionary?[AppExtensionPasswordKey] as? String ?? ""
+                        self.confirmPassword = loginDictionary?[AppExtensionPasswordKey] as? String ?? ""
+                        self.tableView.reloadData()
+                    }
+                })
+            }
+        }
+    }
     
     func textFieldDidFinishEditing(on cell: AuthenticationTableViewCell) {
         guard let indexPath = tableView.indexPath(for: cell) else { return }
